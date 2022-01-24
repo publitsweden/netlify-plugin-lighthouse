@@ -1,13 +1,11 @@
 require('dotenv').config();
 const { join, dirname } = require('path');
-const express = require('express');
-const compression = require('compression');
 const chalk = require('chalk');
 const fs = require('fs').promises;
 const { getConfiguration } = require('./config');
 const { getBrowserPath, runLighthouse } = require('./lighthouse');
 
-const getServer = ({ serveDir, auditUrl }) => {
+const getServer = ({ auditUrl }) => {
   if (auditUrl) {
     // return a mock server for readability
     const server = {
@@ -20,28 +18,6 @@ const getServer = ({ serveDir, auditUrl }) => {
     };
     return { server };
   }
-
-  if (!serveDir) {
-    throw new Error('Empty publish dir');
-  }
-
-  const app = express();
-  app.use(compression());
-  app.use(express.static(serveDir));
-
-  const port = 5000;
-  const host = 'localhost';
-  const server = {
-    listen: (func) => {
-      console.log(
-        `Serving and scanning site from directory ${chalk.magenta(serveDir)}`,
-      );
-      return app.listen(port, host, func);
-    },
-    close: (instance) => instance.close(),
-    url: `http://${host}:${port}`,
-  };
-  return { server };
 };
 
 const belowThreshold = (id, expected, categories) => {
@@ -131,7 +107,7 @@ const runAudit = async ({ path, url, thresholds, output_path }) => {
     const { error, results } = await new Promise((resolve) => {
       const instance = server.listen(async () => {
         try {
-          const results = await runLighthouse(browserPath, server.url);
+          const results = await runLighthouse(browserPath, server.url + path);
           resolve({ error: false, results });
         } catch (error) {
           resolve({ error });
@@ -222,7 +198,7 @@ const processResults = ({ summaries, errors }) => {
 };
 
 module.exports = {
-  onPostBuild: async ({ constants, utils, inputs } = {}) => {
+  onSuccess: async ({ constants, utils, inputs } = {}) => {
     const { failBuild, show } = getUtils({ utils });
 
     try {
@@ -233,7 +209,9 @@ module.exports = {
 
       const allErrors = [];
       const summaries = [];
-      for (const { path, url, thresholds, output_path } of audits) {
+      const url = constants.URL || process.env.URL;
+
+      for (const { path, thresholds, output_path } of audits) {
         const { errors, summary, shortSummary } = await runAudit({
           path,
           url,
